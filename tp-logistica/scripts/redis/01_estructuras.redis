@@ -1,0 +1,50 @@
+# =====================================================================
+# Redis — estructuras de la plataforma (una por patrón de clave)
+# Ejecutar con:  grep -v '^#' scripts/redis/01_estructuras.redis | redis-cli
+# (redis-cli no admite comentarios: el grep quita las líneas que empiezan con #)
+# Redis no tiene esquema: este script crea los grupos de consumidores de
+# los streams y muestra, con datos de ejemplo, cómo se usa cada clave.
+# =====================================================================
+
+# --- Grupos de consumidores de los streams (se crean una sola vez) ---
+XGROUP CREATE alertas:stream notificadores $ MKSTREAM
+XGROUP CREATE sync:stream sincronizadores $ MKSTREAM
+
+# --- 1. sesion:{id_sesion}  (hash, TTL 30 min renovable) ---
+HSET sesion:9f1c2a7d id_usuario 12 email ana@demo.com roles OPERADOR fecha_inicio 1791295000 ultimo_acceso 1791295000
+EXPIRE sesion:9f1c2a7d 1800
+
+# --- 2. usuario:{id_usuario}:sesiones  (set, índice inverso usuario -> sesiones) ---
+SADD usuario:12:sesiones 9f1c2a7d
+
+# Validar la sesión en cada operación y renovar su vencimiento
+HGETALL sesion:9f1c2a7d
+HSET sesion:9f1c2a7d ultimo_acceso 1791295600
+EXPIRE sesion:9f1c2a7d 1800
+
+# --- 3. sensor:ultimo_contacto  (sorted set: miembro = id_sensor, score = epoch) ---
+ZADD sensor:ultimo_contacto 1791295461 88
+ZADD sensor:ultimo_contacto 1791294000 91
+ZADD sensor:ultimo_contacto 1791295400 93
+# Sensores sin reportar hace más de 15 minutos (ahora = 1791295500 -> corte 1791294600)
+ZRANGEBYSCORE sensor:ultimo_contacto -inf (1791294600
+
+# --- 4. alertas:stream  (stream con grupo de consumidores) ---
+XADD alertas:stream MAXLEN ~ 10000 * tipo TEMPERATURA_ALTA id_sensor 88 id_envio 1042 valor 9.4
+XREADGROUP GROUP notificadores app-1 COUNT 10 STREAMS alertas:stream >
+
+# --- 5. sync:stream  (eventos del outbox de PostgreSQL hacia Neo4j) ---
+XADD sync:stream MAXLEN ~ 100000 * id_evento 501 tipo_evento TRAMO_AGREGADO id_agregado 311
+XREADGROUP GROUP sincronizadores worker-1 COUNT 10 STREAMS sync:stream >
+
+# --- 6. lock:proceso:{nombre}  (string con SET NX EX) ---
+SET lock:proceso:facturacion app-1 NX EX 600
+# Un segundo intento mientras el primero corre devuelve (nil): no se ejecuta dos veces
+SET lock:proceso:facturacion app-2 NX EX 600
+
+# --- 7. cache:ranking:{tipo}  (string JSON, TTL 10 min) ---
+SET cache:ranking:rutas "[{\"ruta\":\"ARBUE-ESVLC\",\"incidentes\":7}]" EX 600
+
+# --- Cierre de sesión: borrar la sesión y sacarla del índice del usuario ---
+DEL sesion:9f1c2a7d
+SREM usuario:12:sesiones 9f1c2a7d

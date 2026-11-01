@@ -1,0 +1,15 @@
+# Drivers oficiales de cada motor
+psycopg[binary]>=3.1        # PostgreSQL
+pymongo>=4.6                # MongoDB
+neo4j>=5.20                 # Neo4j
+cassandra-driver>=3.29      # Cassandra
+pyasyncore>=1.0.4; python_version >= "3.12"   # el driver de Cassandra lo necesita en Python 3.12+
+redis>=5.0                  # Redis
+
+# Aplicación
+rich>=13.7                  # menús y tablas en la consola
+python-dotenv>=1.0          # lee la configuración del archivo .env
+bcrypt>=4.1                 # hash de contraseñas
+
+# Pruebas
+pytest>=8.0
