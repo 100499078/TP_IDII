@@ -17,6 +17,7 @@ CREATE TABLE actor (
                 CHECK (estado IN ('ACTIVO','INACTIVO','SUSPENDIDO')),
   fecha_alta    TIMESTAMPTZ  NOT NULL DEFAULT now()
 );
+-- Subtipos
 CREATE TABLE cliente (
   id_actor            INT PRIMARY KEY REFERENCES actor ON DELETE CASCADE,
   limite_credito      NUMERIC(14,2) NOT NULL DEFAULT 0 CHECK (limite_credito >= 0),
@@ -140,7 +141,7 @@ CREATE TABLE envio_contenedor (
   PRIMARY KEY (id_envio, id_contenedor)
 );
 CREATE TABLE tramo (
-  id_tramo                SERIAL PRIMARY KEY,
+  id_tramo                SERIAL PRIMARY KEY, -- Numero que se pone solo, una secuencia
   id_envio                INT NOT NULL REFERENCES envio ON DELETE CASCADE,
   orden                   SMALLINT NOT NULL CHECK (orden >= 1),
   medio_transporte        VARCHAR(10) NOT NULL CHECK (medio_transporte IN ('TERRESTRE','MARITIMO','AEREO')),
@@ -228,21 +229,25 @@ CREATE TABLE outbox (
 );
 
 -- ===== Índices =====
-CREATE INDEX ix_envio_cliente_fecha ON envio (id_cliente, fecha_creacion);
-CREATE INDEX ix_envio_estado        ON envio (estado);
+-- índice compuesto: (A, B) sirve para buscar por A, o por A y B, pero no por B sola.
+-- índice parcial: solo guarda algunas filas, las que cumplen la condición WHERE.
+-- índice único: prohibe valores repetidos
+CREATE INDEX ix_envio_cliente_fecha ON envio (id_cliente, fecha_creacion); -- buscar los envíos de un cliente
+CREATE INDEX ix_envio_estado        ON envio (estado); -- filtrar envios por estado, más útil con los estados minoritarios
 CREATE INDEX ix_envio_demorados     ON envio (fecha_entrega_estimada)
-  WHERE estado NOT IN ('ENTREGADO','CANCELADO');
+  WHERE estado NOT IN ('ENTREGADO','CANCELADO'); -- encontrar rápido los envíos que ya pasaron su fecha estimada
 CREATE INDEX ix_ubicacion_pais      ON ubicacion (pais);
-CREATE INDEX ix_tramo_medio         ON tramo (medio_transporte);
-CREATE INDEX ix_sensor_contenedor   ON sensor (id_contenedor);
+CREATE INDEX ix_tramo_medio         ON tramo (medio_transporte); -- poco selectivo
+CREATE INDEX ix_sensor_contenedor   ON sensor (id_contenedor); -- sobre una FK
 CREATE INDEX ix_factura_actor_estado ON factura (id_actor, estado);
-CREATE UNIQUE INDEX ux_item_factura_envio ON item_factura (id_envio) WHERE id_envio IS NOT NULL;
+CREATE UNIQUE INDEX ux_item_factura_envio ON item_factura (id_envio) WHERE id_envio IS NOT NULL; -- un envío no puede facturar dos veces
 CREATE INDEX ix_pago_factura        ON pago (id_factura);
 CREATE INDEX ix_movimiento_cuenta_fecha ON movimiento_cc (id_cuenta, fecha);
 CREATE INDEX ix_outbox_pendientes   ON outbox (creado_en) WHERE procesado_en IS NULL;
 CREATE INDEX ix_sesiones_activas   ON sesion_historial (id_usuario) WHERE estado = 'ACTIVA';
 
 -- ===== Trigger: saldo de cuenta corriente =====
+-- Así es imposible insertar un movimiento sin actualizar el saldo
 CREATE FUNCTION fn_actualizar_saldo() RETURNS trigger AS $$
 BEGIN
   UPDATE cuenta_corriente
